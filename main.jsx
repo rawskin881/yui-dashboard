@@ -7,58 +7,127 @@ function YuiDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [mood, setMood] = useState('happy');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  const getTelegramUserId = async () => {
-    if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
-      return window.Telegram.WebApp.initDataUnsafe.user.id;
+  // ===== TELEGRAM LOGIN =====
+  const getTelegramUserData = () => {
+    // Pastikan Telegram Web App sudah loaded
+    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+      const webApp = window.Telegram.WebApp;
+      
+      // Expand webapp (opsional, tapi bikin better UX)
+      webApp.expand();
+      
+      // Ambil user data dari Telegram
+      const initData = webApp.initDataUnsafe;
+      
+      if (initData && initData.user) {
+        return {
+          id: initData.user.id,
+          first_name: initData.user.first_name,
+          last_name: initData.user.last_name || '',
+          username: initData.user.username || '',
+          is_bot: initData.user.is_bot || false,
+        };
+      }
     }
+    
     return null;
   };
 
+  // ===== FETCH DATA DARI API =====
   const fetchData = async () => {
     try {
-      const userId = await getTelegramUserId();
-      if (!userId) {
-        setError("Harus buka dari Telegram!");
+      setLoading(true);
+      
+      // Get user dari Telegram
+      const telegramUser = getTelegramUserData();
+      
+      if (!telegramUser) {
+        setError("⚠️ Buka dashboard dari Telegram untuk login!");
+        setLoading(false);
         return;
       }
 
+      // Set authenticated
+      setIsAuthenticated(true);
+      
+      // Simpan user info
+      setUser({
+        name: telegramUser.first_name || 'Kak',
+        id: telegramUser.id,
+        username: telegramUser.username,
+      });
+
       const apiUrl = import.meta.env.VITE_API_URL;
+      const userId = telegramUser.id;
 
-      const res = await fetch(`${apiUrl}/api/airdrops`, {
-        headers: { "Authorization": `Bearer ${userId}` }
+      // ===== FETCH AIRDROPS DARI API =====
+      console.log(`[DEBUG] Fetching airdrops for user ${userId}`);
+      
+      const airdropRes = await fetch(`${apiUrl}/api/airdrops`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${userId}`,
+          'Content-Type': 'application/json',
+        },
       });
-      const data = await res.json();
-      setAirdrops(data);
 
-      const userRes = await fetch(`${apiUrl}/api/user`, {
-        headers: { "Authorization": `Bearer ${userId}` }
-      });
-      const userData = await userRes.json();
-      setUser(userData);
+      if (!airdropRes.ok) {
+        throw new Error(`API error: ${airdropRes.status}`);
+      }
 
-      // Set mood berdasarkan airdrop status
-      const pending = data.filter(a => a.status === 'pending').length;
+      const airdropData = await airdropRes.json();
+      console.log('[DEBUG] Airdrop data:', airdropData);
+      
+      setAirdrops(airdropData);
+
+      // Set mood berdasarkan pending tasks
+      const pending = airdropData.filter(a => a.status === 'pending').length;
       if (pending > 5) setMood('tired');
       else if (pending > 0) setMood('happy');
       else setMood('excited');
 
       setError(null);
     } catch (err) {
-      setError("Gagal fetch data: " + err.message);
+      console.error('[ERROR]', err);
+      setError(`❌ Gagal load data: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
+  // ===== LOAD DATA SAAT COMPONENT MOUNT =====
   useEffect(() => {
-    fetchData();
+    // Delay untuk ensure Telegram script sudah loaded
+    const timer = setTimeout(() => {
+      fetchData();
+    }, 500);
+
+    return () => clearTimeout(timer);
   }, []);
 
+  // Loading state
   if (loading) {
-    return <div className="loading">🌸 Yui lagi muat data...</div>;
+    return (
+      <div className="loading">
+        <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>🌸</div>
+        <div>Yui lagi muat data...</div>
+      </div>
+    );
   }
 
+  // Not authenticated state
+  if (!isAuthenticated) {
+    return (
+      <div className="loading">
+        <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>📱</div>
+        <div>{error || "Buka dari Telegram untuk login"}</div>
+      </div>
+    );
+  }
+
+  // Stats calculation
   const stats = {
     total: airdrops.length,
     pending: airdrops.filter(a => a.status === 'pending').length,
@@ -66,7 +135,6 @@ function YuiDashboard() {
     claimed: airdrops.filter(a => a.status === 'claim').length,
   };
 
-  // Mood greeting
   const greetings = {
     happy: 'Semangat ya! 💪',
     tired: 'Istirahat sebentar... 😴',
@@ -75,7 +143,7 @@ function YuiDashboard() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      {/* ========== SIDEBAR WITH YUI CHARACTER ========== */}
+      {/* ========== SIDEBAR ========== */}
       <aside style={{
         width: '200px',
         background: 'linear-gradient(180deg, #f5e6ff 0%, #fff0f5 100%)',
@@ -87,7 +155,7 @@ function YuiDashboard() {
         flexDirection: 'column',
         alignItems: 'center',
       }}>
-        {/* YUI CHARACTER IMAGE */}
+        {/* CHARACTER IMAGE */}
         <img 
           src="/images/yui-sidebar.png" 
           alt="Yui" 
@@ -97,14 +165,10 @@ function YuiDashboard() {
             marginBottom: '1.5rem',
             filter: 'drop-shadow(0 4px 12px rgba(0,0,0,0.12))',
             borderRadius: '8px',
-            transition: 'transform 0.3s',
-            cursor: 'pointer',
           }}
-          onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
-          onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
         />
         
-        {/* CHARACTER NAME & GREETING */}
+        {/* NAME & GREETING */}
         <div style={{ marginBottom: '1.5rem', width: '100%' }}>
           <h2 style={{
             fontSize: '1.3rem',
@@ -125,7 +189,7 @@ function YuiDashboard() {
           </p>
         </div>
 
-        {/* QUICK STATS BOX */}
+        {/* QUICK STATS */}
         <div style={{
           background: 'rgba(255,255,255,0.8)',
           padding: '1rem',
@@ -161,17 +225,21 @@ function YuiDashboard() {
           </div>
         </div>
 
-        {/* MOTIVATIONAL MESSAGE */}
+        {/* USER INFO */}
         <div style={{
           fontSize: '0.8rem',
-          color: '#764ba2',
-          fontWeight: '600',
+          color: '#999',
           marginTop: 'auto',
           paddingTop: '1rem',
           borderTop: '1px solid rgba(0,0,0,0.1)',
           width: '100%',
         }}>
-          Yui mendukung mu! 💖
+          <div style={{ fontWeight: '600', marginBottom: '0.5rem' }}>
+            {user?.name}
+          </div>
+          {user?.username && (
+            <div style={{ fontSize: '0.7rem' }}>@{user.username}</div>
+          )}
         </div>
       </aside>
 
@@ -179,10 +247,14 @@ function YuiDashboard() {
       <div className="container">
         <div className="header">
           <h1>✨ Yui Dashboard</h1>
-          <p>Halo {user?.name || 'Kak'}! Kelola airdrop-mu di sini 🌸</p>
+          <p>Halo {user?.name}! Kelola airdrop-mu di sini 🌸</p>
         </div>
 
-        {error && <div className="error">{error}</div>}
+        {error && (
+          <div className="error" style={{ marginBottom: '2rem' }}>
+            {error}
+          </div>
+        )}
 
         <div className="card">
           <h2>📊 Summary</h2>
@@ -209,7 +281,9 @@ function YuiDashboard() {
         <div className="card">
           <h2>📋 Airdrop List</h2>
           {airdrops.length === 0 ? (
-            <p style={{color: '#999'}}>Belum ada airdrop. Tambah via /tambah di bot! 🌸</p>
+            <p style={{color: '#999', fontStyle: 'italic'}}>
+              📭 Belum ada airdrop. Tambah via /tambah di bot! 🌸
+            </p>
           ) : (
             <div className="airdrop-list">
               {airdrops.map((a, idx) => (
