@@ -9,52 +9,46 @@ function YuiDashboard() {
   const [mood, setMood] = useState('happy');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // ===== TELEGRAM LOGIN =====
+  // ===== GET TELEGRAM USER DATA =====
   const getTelegramUserData = () => {
-    // Pastikan Telegram Web App sudah loaded
-    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      const webApp = window.Telegram.WebApp;
-      
-      // Expand webapp (opsional, tapi bikin better UX)
-      webApp.expand();
-      
-      // Ambil user data dari Telegram
-      const initData = webApp.initDataUnsafe;
-      
-      if (initData && initData.user) {
-        return {
-          id: initData.user.id,
-          first_name: initData.user.first_name,
-          last_name: initData.user.last_name || '',
-          username: initData.user.username || '',
-          is_bot: initData.user.is_bot || false,
-        };
+    try {
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        const webApp = window.Telegram.WebApp;
+        webApp.expand();
+        
+        const initData = webApp.initDataUnsafe;
+        
+        if (initData?.user?.id) {
+          return {
+            id: initData.user.id,
+            first_name: initData.user.first_name || 'Kak',
+            last_name: initData.user.last_name || '',
+            username: initData.user.username || '',
+          };
+        }
       }
+    } catch (err) {
+      console.error('Telegram error:', err);
     }
-    
     return null;
   };
 
-  // ===== FETCH DATA DARI API =====
+  // ===== FETCH DATA =====
   const fetchData = async () => {
     try {
       setLoading(true);
       
-      // Get user dari Telegram
       const telegramUser = getTelegramUserData();
       
       if (!telegramUser) {
-        setError("⚠️ Buka dashboard dari Telegram untuk login!");
+        setError("⚠️ Buka dashboard dari tombol di Telegram!");
         setLoading(false);
         return;
       }
 
-      // Set authenticated
       setIsAuthenticated(true);
-      
-      // Simpan user info
       setUser({
-        name: telegramUser.first_name || 'Kak',
+        name: telegramUser.first_name,
         id: telegramUser.id,
         username: telegramUser.username,
       });
@@ -62,10 +56,10 @@ function YuiDashboard() {
       const apiUrl = import.meta.env.VITE_API_URL;
       const userId = telegramUser.id;
 
-      // ===== FETCH AIRDROPS DARI API =====
-      console.log(`[DEBUG] Fetching airdrops for user ${userId}`);
-      
-      const airdropRes = await fetch(`${apiUrl}/api/airdrops`, {
+      console.log(`[DEBUG] Fetching for user ${userId}`);
+
+      // Fetch airdrops
+      const res = await fetch(`${apiUrl}/api/airdrops`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${userId}`,
@@ -73,17 +67,17 @@ function YuiDashboard() {
         },
       });
 
-      if (!airdropRes.ok) {
-        throw new Error(`API error: ${airdropRes.status}`);
+      if (!res.ok) {
+        throw new Error(`API error: ${res.status}`);
       }
 
-      const airdropData = await airdropRes.json();
-      console.log('[DEBUG] Airdrop data:', airdropData);
+      const data = await res.json();
+      console.log('[DEBUG] Data:', data);
       
-      setAirdrops(airdropData);
+      setAirdrops(data);
 
-      // Set mood berdasarkan pending tasks
-      const pending = airdropData.filter(a => a.status === 'pending').length;
+      // Set mood
+      const pending = data.filter(a => a.status === 'pending').length;
       if (pending > 5) setMood('tired');
       else if (pending > 0) setMood('happy');
       else setMood('excited');
@@ -91,43 +85,46 @@ function YuiDashboard() {
       setError(null);
     } catch (err) {
       console.error('[ERROR]', err);
-      setError(`❌ Gagal load data: ${err.message}`);
+      setError(`❌ Error: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // ===== LOAD DATA SAAT COMPONENT MOUNT =====
   useEffect(() => {
-    // Delay untuk ensure Telegram script sudah loaded
+    // Wait for Telegram script to load
     const timer = setTimeout(() => {
       fetchData();
-    }, 500);
+    }, 800);
 
     return () => clearTimeout(timer);
   }, []);
 
-  // Loading state
   if (loading) {
     return (
       <div className="loading">
         <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>🌸</div>
-        <div>Yui lagi muat data...</div>
+        <div>Loading data...</div>
       </div>
     );
   }
 
-  // Not authenticated state
   if (!isAuthenticated) {
     return (
       <div className="loading">
-        <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>📱</div>
-        <div>{error || "Buka dari Telegram untuk login"}</div>
+        <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📱</div>
+        <div style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>⚠️ Error</div>
+        <div style={{ textAlign: 'center', color: '#666', lineHeight: '1.6' }}>
+          {error || "Buka dashboard dari tombol di Telegram untuk login"}
+          <br/>
+          <small style={{ marginTop: '1rem', display: 'block' }}>
+            (Dashboard memerlukan Telegram Web App untuk mengakses data Anda)
+          </small>
+        </div>
       </div>
     );
   }
 
-  // Stats calculation
   const stats = {
     total: airdrops.length,
     pending: airdrops.filter(a => a.status === 'pending').length,
@@ -143,7 +140,7 @@ function YuiDashboard() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      {/* ========== SIDEBAR ========== */}
+      {/* SIDEBAR */}
       <aside style={{
         width: '200px',
         background: 'linear-gradient(180deg, #f5e6ff 0%, #fff0f5 100%)',
@@ -155,7 +152,6 @@ function YuiDashboard() {
         flexDirection: 'column',
         alignItems: 'center',
       }}>
-        {/* CHARACTER IMAGE */}
         <img 
           src="/images/yui-sidebar.png" 
           alt="Yui" 
@@ -168,7 +164,6 @@ function YuiDashboard() {
           }}
         />
         
-        {/* NAME & GREETING */}
         <div style={{ marginBottom: '1.5rem', width: '100%' }}>
           <h2 style={{
             fontSize: '1.3rem',
@@ -189,7 +184,6 @@ function YuiDashboard() {
           </p>
         </div>
 
-        {/* QUICK STATS */}
         <div style={{
           background: 'rgba(255,255,255,0.8)',
           padding: '1rem',
@@ -225,7 +219,6 @@ function YuiDashboard() {
           </div>
         </div>
 
-        {/* USER INFO */}
         <div style={{
           fontSize: '0.8rem',
           color: '#999',
@@ -243,7 +236,7 @@ function YuiDashboard() {
         </div>
       </aside>
 
-      {/* ========== MAIN CONTENT ========== */}
+      {/* MAIN CONTENT */}
       <div className="container">
         <div className="header">
           <h1>✨ Yui Dashboard</h1>
