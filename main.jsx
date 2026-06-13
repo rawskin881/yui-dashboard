@@ -187,12 +187,19 @@ function YuiDashboard() {
       alert('Gagal buka di browser');
     }
   };
-  useEffect(() => {
-    // Delay sedikit agar Telegram WebApp script sempat load
-    const timer = setTimeout(() => {
+    useEffect(() => {
+    // Gunakan Telegram WebApp Ready Event agar pasti sudah load
+    if (window.Telegram?.WebApp) {
+      window.Telegram.WebApp.ready(); // Beritahu Telegram bahwa WebApp sudah siap
+      window.Telegram.WebApp.expand(); // Perbesar tampilan
+      
+      // Tunggu event ready baru jalankan auth
+      window.Telegram.WebApp.onEvent('viewportChanged', () => {});
       initAuth();
-    }, 800);
-    return () => clearTimeout(timer);
+    } else {
+      // Fallback kalau ternyata dibuka di browser biasa
+      initAuth();
+    }
   }, []);
 
   // ==========================================
