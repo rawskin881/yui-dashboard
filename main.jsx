@@ -9,28 +9,47 @@ function YuiDashboard() {
   const [mood, setMood] = useState('happy');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [platform, setPlatform] = useState(null); // 'telegram' | 'browser'
+  const [debugInfo, setDebugInfo] = useState(null);
   
-  // OTP manual input state
+  // OTP state
   const [otpInput, setOtpInput] = useState('');
   const [otpError, setOtpError] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
 
   const API_URL = import.meta.env.VITE_API_URL;
+  const DEBUG = true; // Set ke false untuk production
+
+  // Logging utility
+  const log = (msg, data = null) => {
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`[${timestamp}] ${msg}`, data || '');
+    if (DEBUG && data) {
+      setDebugInfo(msg);
+    }
+  };
 
   // ==========================================
   // HELPER: Fetch user profile
   // ==========================================
   const fetchProfile = async (token) => {
     try {
+      log(`Fetching profile with token: ${token.substring(0, 20)}...`);
+      
       const res = await fetch(`${API_URL}/api/user`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+
+      log(`Profile response status: ${res.status}`);
+
       if (!res.ok) throw new Error('Token invalid');
+      
       const data = await res.json();
+      log(`Profile fetched:`, data);
+      
       setUser({ name: data.name, id: data.userId });
       return true;
     } catch (err) {
-      console.error('Profile fetch error:', err);
+      log(`Profile fetch error: ${err.message}`);
       localStorage.removeItem('auth_token');
       return false;
     }
@@ -42,6 +61,8 @@ function YuiDashboard() {
   const fetchAirdrops = async (token) => {
     try {
       setLoading(true);
+      log(`Fetching airdrops with token: ${token.substring(0, 20)}...`);
+
       const res = await fetch(`${API_URL}/api/airdrops`, {
         headers: { 
           'Authorization': `Bearer ${token}`, 
@@ -49,12 +70,16 @@ function YuiDashboard() {
         },
       });
 
+      log(`Airdrops response status: ${res.status}`);
+
       if (!res.ok) throw new Error(`API error: ${res.status}`);
 
       const data = await res.json();
+      log(`Airdrops fetched:`, { count: data.length, data });
+      
       setAirdrops(data);
 
-      // Update mood berdasarkan pending count
+      // Update mood
       const pending = data.filter(a => a.status === 'pending').length;
       if (pending > 5) setMood('tired');
       else if (pending > 0) setMood('happy');
@@ -62,6 +87,7 @@ function YuiDashboard() {
 
       setError(null);
     } catch (err) {
+      log(`Airdrops fetch error: ${err.message}`);
       setError(`❌ Error: ${err.message}`);
     } finally {
       setLoading(false);
@@ -73,11 +99,15 @@ function YuiDashboard() {
   // ==========================================
   const verifyOTP = async (otpCode) => {
     try {
+      log(`Verifying OTP: ${otpCode}`);
+
       const res = await fetch(`${API_URL}/auth/otp/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ otp: otpCode }),
       });
+
+      log(`OTP verification response status: ${res.status}`);
 
       if (!res.ok) {
         const errData = await res.json();
@@ -85,11 +115,12 @@ function YuiDashboard() {
       }
 
       const data = await res.json();
+      log(`OTP verification success:`, data);
       
-      // Simpan token & set authenticated
+      // Set semua state dengan benar
       localStorage.setItem('auth_token', data.token);
       setUser({ name: data.user.name, id: data.user.id });
-      setPlatform('browser');
+      setPlatform('browser'); // <-- CRITICAL: Set platform
       setIsAuthenticated(true);
       setOtpInput('');
       setOtpError('');
@@ -98,6 +129,7 @@ function YuiDashboard() {
       await fetchAirdrops(data.token);
       return true;
     } catch (err) {
+      log(`OTP verification error: ${err.message}`);
       setOtpError(err.message || 'Kode OTP salah atau expired!');
       return false;
     }
@@ -121,7 +153,7 @@ function YuiDashboard() {
   };
 
   // ==========================================
-  // HANDLE: Open in Browser (dari Telegram)
+  // HANDLE: Open in Browser
   // ==========================================
   const handleOpenInBrowser = async () => {
     try {
@@ -131,6 +163,8 @@ function YuiDashboard() {
         return;
       }
 
+      log(`Generating OTP with token: ${token.substring(0, 20)}...`);
+
       const res = await fetch(`${API_URL}/auth/otp/generate`, {
         method: 'POST',
         headers: { 
@@ -139,11 +173,14 @@ function YuiDashboard() {
         },
       });
 
+      log(`OTP generation response status: ${res.status}`);
+
       if (!res.ok) {
         throw new Error('Gagal generate OTP');
       }
 
       const data = await res.json();
+      log(`OTP generated:`, data);
       
       if (data.otp) {
         const dashboardUrl = window.location.origin;
@@ -151,16 +188,16 @@ function YuiDashboard() {
         
         // Copy ke clipboard
         navigator.clipboard.writeText(browserLink);
-        alert(`✅ Link disalin ke clipboard!\n\nAtau gunakan OTP: ${data.otp}`);
+        alert(`✅ Link disalin ke clipboard!\n\nOTP: ${data.otp}\nExpires in: 10 minutes`);
         
-        // Atau buka langsung (jika di Telegram)
+        // Atau buka langsung
         if (window.Telegram?.WebApp) {
           window.Telegram.WebApp.openLink(browserLink);
         }
       }
     } catch (err) {
-      console.error('Generate OTP error:', err);
-      alert('❌ Gagal generate OTP');
+      log(`Generate OTP error: ${err.message}`);
+      alert('❌ Gagal generate OTP: ' + err.message);
     }
   };
 
@@ -169,85 +206,94 @@ function YuiDashboard() {
   // ==========================================
   const initAuth = async (retryCount = 0) => {
     try {
-      // 1️⃣ Cek OTP dari URL query parameter (browser)
+      log(`=== AUTH INIT START (retry: ${retryCount}) ===`);
+
+      // 1. Check OTP in URL
       const urlParams = new URLSearchParams(window.location.search);
       const otp = urlParams.get('otp');
       
       if (otp) {
-        console.log('[Auth] OTP ditemukan di URL, verifying...');
+        log(`OTP found in URL: ${otp}`);
         const success = await verifyOTP(otp);
         if (success) {
-          // Clean up URL
           window.history.replaceState({}, document.title, window.location.pathname);
+          log(`=== AUTH INIT COMPLETE (OTP) ===`);
           return;
         }
       }
 
-      // 2️⃣ Cek token tersimpan di localStorage (browser yang sudah login)
+      // 2. Check saved token
       const savedToken = localStorage.getItem('auth_token');
       if (savedToken) {
-        console.log('[Auth] Token ditemukan di localStorage, validating...');
+        log(`Saved token found in localStorage`);
         const valid = await fetchProfile(savedToken);
         if (valid) {
-          setPlatform('browser');
+          log(`Token validation successful, setting platform: browser`);
+          setPlatform('browser'); // <-- CRITICAL: Set platform
           setIsAuthenticated(true);
           await fetchAirdrops(savedToken);
+          log(`=== AUTH INIT COMPLETE (localStorage) ===`);
           return;
         }
       }
 
-      // 3️⃣ Cek apakah dibuka dari Telegram WebApp
+      // 3. Check Telegram WebApp
       const telegramInitData = window.__TELEGRAM_INIT_DATA__;
       
       if (telegramInitData) {
-        console.log('[Auth] Telegram WebApp detected, authenticating...');
+        log(`Telegram initData detected`);
         const res = await fetch(`${API_URL}/auth/telegram`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ initData: telegramInitData }),
         });
 
+        log(`Telegram auth response status: ${res.status}`);
+
         if (!res.ok) {
           throw new Error('Telegram auth failed');
         }
 
         const data = await res.json();
+        log(`Telegram auth success:`, data);
         
         if (data.token) {
           localStorage.setItem('auth_token', data.token);
           setUser({ name: data.user.name, id: data.user.id });
-          setPlatform('telegram');
+          log(`Setting platform: telegram`);
+          setPlatform('telegram'); // <-- CRITICAL: Set platform
           setIsAuthenticated(true);
           
-          // Expand mini app
           if (window.Telegram?.WebApp) {
             window.Telegram.WebApp.expand();
           }
           
           await fetchAirdrops(data.token);
+          log(`=== AUTH INIT COMPLETE (Telegram) ===`);
           return;
         }
       }
 
-      // 4️⃣ Retry 1x after 2 seconds (untuk Telegram yang lambat load)
+      // 4. Retry logic
       if (retryCount < 1) {
-        console.log('[Auth] Retrying Telegram detection...');
+        log(`No auth method worked, retrying after 2s...`);
         setTimeout(() => initAuth(retryCount + 1), 2000);
         return;
       }
 
-      // 5️⃣ Jika semua gagal, tampilkan login screen
-      console.log('[Auth] No auth method worked, showing login');
+      // 5. Fallback to login screen
+      log(`All auth methods failed, showing login screen`);
       setLoading(false);
+      log(`=== AUTH INIT COMPLETE (FALLBACK) ===`);
       
     } catch (err) {
-      console.error('[Auth] Error:', err);
+      log(`Auth init error: ${err.message}`);
       setLoading(false);
       setError("❌ Gagal menghubungi server.");
     }
   };
 
-  // Effect: Initialize auth on mount
+  // Effect: Initialize on mount
   useEffect(() => {
     initAuth();
   }, []);
@@ -257,22 +303,49 @@ function YuiDashboard() {
   // ==========================================
   if (loading) {
     return (
-      <div className="loading">
-        <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>🌸</div>
-        <div>Yui lagi nyiapin data...</div>
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #f5e6ff 0%, #fff0f5 100%)',
+      }}>
+        <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🌸</div>
+        <div style={{ fontSize: '1.1rem', color: '#764ba2' }}>Yui lagi nyiapin data...</div>
+        {debugInfo && (
+          <div style={{
+            marginTop: '2rem',
+            padding: '1rem',
+            background: 'rgba(0,0,0,0.05)',
+            borderRadius: '8px',
+            fontSize: '0.8rem',
+            color: '#666',
+            maxWidth: '400px',
+            textAlign: 'center'
+          }}>
+            {debugInfo}
+          </div>
+        )}
       </div>
     );
   }
 
   // ==========================================
-  // RENDER: Not Authenticated (Login Screen)
+  // RENDER: Not Authenticated
   // ==========================================
   if (!isAuthenticated) {
     return (
-      <div className="login-container">
-        <div style={{ maxWidth: '400px', margin: '10vh auto', padding: '2rem' }}>
+      <div style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #f5e6ff 0%, #fff0f5 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        <div style={{ maxWidth: '400px', padding: '2rem', background: 'white', borderRadius: '16px', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}>
           <div style={{ fontSize: '3rem', marginBottom: '1rem', textAlign: 'center' }}>🔒</div>
-          <div style={{ fontSize: '1.2rem', marginBottom: '1rem', textAlign: 'center', fontWeight: '600' }}>
+          <div style={{ fontSize: '1.2rem', marginBottom: '1rem', textAlign: 'center', fontWeight: '600', color: '#333' }}>
             Masuk ke Yui Dashboard
           </div>
           <div style={{ textAlign: 'center', color: '#666', lineHeight: '1.6', marginBottom: '2rem', fontSize: '0.95rem' }}>
@@ -346,7 +419,7 @@ function YuiDashboard() {
   }
 
   // ==========================================
-  // RENDER: Dashboard (Authenticated)
+  // RENDER: Dashboard
   // ==========================================
   const stats = {
     total: airdrops.length,
@@ -362,7 +435,7 @@ function YuiDashboard() {
   };
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', background: '#f9f9f9' }}>
       {/* SIDEBAR */}
       <aside style={{
         width: '200px',
@@ -454,7 +527,7 @@ function YuiDashboard() {
             {user?.name}
           </div>
           
-          {/* Button: Buka di Browser (hanya di Telegram) */}
+          {/* IMPORTANT: Show button ONLY if platform is 'telegram' */}
           {platform === 'telegram' && (
             <button 
               onClick={handleOpenInBrowser}
@@ -482,7 +555,7 @@ function YuiDashboard() {
             </button>
           )}
 
-          {/* Badge: Platform Info */}
+          {/* Platform badge */}
           <div style={{
             marginTop: '0.8rem',
             fontSize: '0.7rem',
@@ -493,7 +566,7 @@ function YuiDashboard() {
             textAlign: 'center',
             fontWeight: '500'
           }}>
-            {platform === 'telegram' ? '📱 Telegram' : '💻 Browser'}
+            {platform === 'telegram' ? '📱 Telegram' : platform === 'browser' ? '💻 Browser' : '❓ Unknown'}
           </div>
         </div>
       </aside>
@@ -526,7 +599,7 @@ function YuiDashboard() {
           marginBottom: '2rem',
           boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
         }}>
-          <h2 style={{ marginTop: 0, marginBottom: '1.5rem' }}>📊 Summary</h2>
+          <h2 style={{ marginTop: 0, marginBottom: '1.5rem', color: '#333' }}>📊 Summary</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
             <div style={{
               padding: '1rem',
@@ -571,7 +644,7 @@ function YuiDashboard() {
           </div>
         </div>
 
-        {/* AIRDROP LIST CARD */}
+        {/* AIRDROP LIST */}
         <div style={{
           background: 'white',
           padding: '1.5rem',
@@ -579,7 +652,7 @@ function YuiDashboard() {
           marginBottom: '2rem',
           boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
         }}>
-          <h2 style={{ marginTop: 0, marginBottom: '1rem' }}>📋 Airdrop List</h2>
+          <h2 style={{ marginTop: 0, marginBottom: '1rem', color: '#333' }}>📋 Airdrop List ({airdrops.length})</h2>
           {airdrops.length === 0 ? (
             <p style={{color: '#999', fontStyle: 'italic', textAlign: 'center', padding: '2rem'}}>
               📭 Belum ada airdrop. Tambah via /tambah di bot! 🌸
@@ -597,7 +670,7 @@ function YuiDashboard() {
                   borderLeft: '4px solid #764ba2'
                 }}>
                   <div>
-                    <div style={{ fontWeight: '600', marginBottom: '0.3rem' }}>{a.nama}</div>
+                    <div style={{ fontWeight: '600', marginBottom: '0.3rem' }}>{a.nama || a.name}</div>
                     <div style={{fontSize: '0.85rem', color: '#999'}}>
                       📅 {a.deadline ? new Date(a.deadline).toLocaleDateString('id-ID') : '—'}
                     </div>
@@ -619,7 +692,7 @@ function YuiDashboard() {
           )}
         </div>
 
-        {/* FOOTER CARD */}
+        {/* FOOTER */}
         <div style={{
           background: 'white',
           padding: '1.5rem',
@@ -652,9 +725,7 @@ function YuiDashboard() {
   );
 }
 
-// ==========================================
-// HELPER: Get status badge color
-// ==========================================
+// Helper: Get status color
 function getStatusColor(status) {
   const colors = {
     'pending': '#ff9800',
