@@ -8,18 +8,18 @@ function YuiDashboard() {
   const [error, setError] = useState(null);
   const [mood, setMood] = useState('happy');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [platform, setPlatform] = useState(null); // 'telegram' | 'browser'
   
-  // State untuk OTP manual di browser
+  // OTP manual input state
   const [otpInput, setOtpInput] = useState('');
   const [otpError, setOtpError] = useState('');
-  const [platform, setPlatform] = useState('browser');
+  const [otpLoading, setOtpLoading] = useState(false);
+
   const API_URL = import.meta.env.VITE_API_URL;
 
   // ==========================================
-  // AUTH SYSTEM: SINKRONISASI TELEGRAM & BROWSER
+  // HELPER: Fetch user profile
   // ==========================================
-
-  // 1. Verifikasi JWT ke API dan ambil data user (PASTI ASYNC)
   const fetchProfile = async (token) => {
     try {
       const res = await fetch(`${API_URL}/api/user`, {
@@ -29,13 +29,16 @@ function YuiDashboard() {
       const data = await res.json();
       setUser({ name: data.name, id: data.userId });
       return true;
-    } catch {
+    } catch (err) {
+      console.error('Profile fetch error:', err);
       localStorage.removeItem('auth_token');
       return false;
     }
   };
 
-  // 2. Fetch Data Airdrop (PASTI ASYNC)
+  // ==========================================
+  // HELPER: Fetch airdrops list
+  // ==========================================
   const fetchAirdrops = async (token) => {
     try {
       setLoading(true);
@@ -51,6 +54,7 @@ function YuiDashboard() {
       const data = await res.json();
       setAirdrops(data);
 
+      // Update mood berdasarkan pending count
       const pending = data.filter(a => a.status === 'pending').length;
       if (pending > 5) setMood('tired');
       else if (pending > 0) setMood('happy');
@@ -64,114 +68,68 @@ function YuiDashboard() {
     }
   };
 
-  // 3. Main Auth Initialization (PASTI ASYNC)
-  const initAuth = async (retryCount = 0) => {
+  // ==========================================
+  // OTP VERIFICATION
+  // ==========================================
+  const verifyOTP = async (otpCode) => {
     try {
-      // A. Cek OTP dari URL (Browser)
-      const urlParams = new URLSearchParams(window.location.search);
-      const otp = urlParams.get('otp');
+      const res = await fetch(`${API_URL}/auth/otp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ otp: otpCode }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'OTP verification failed');
+      }
+
+      const data = await res.json();
       
-      if (otp) {
-        const res = await fetch(`${API_URL}/auth/otp/verify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ otp }),
-        });
-        const data = await res.json();
-        
-        if (data.token) {
-          localStorage.setItem('auth_token', data.token);
-          window.history.replaceState({}, document.title, window.location.pathname);
-          const valid = await fetchProfile(data.token);
-          if (valid) {
-            setPlatform('browser');
-            setIsAuthenticated(true);
-            await fetchAirdrops(data.token);
-            return;
-          }
-        }
-      }
+      // Simpan token & set authenticated
+      localStorage.setItem('auth_token', data.token);
+      setUser({ name: data.user.name, id: data.user.id });
+      setPlatform('browser');
+      setIsAuthenticated(true);
+      setOtpInput('');
+      setOtpError('');
 
-      // B. Cek Token tersimpan (Browser yang sudah login)
-      const savedToken = localStorage.getItem('auth_token');
-      if (savedToken) {
-        const valid = await fetchProfile(savedToken);
-        if (valid) {
-          setPlatform('browser');
-          setIsAuthenticated(true);
-          await fetchAirdrops(savedToken);
-          return;
-        }
-      }
-
-      // C. Cek apakah dibuka di Telegram (Pakai variabel global dari index.html)
-      const telegramInitData = window.__TELEGRAM_INIT_DATA__;
-      
-      if (telegramInitData) {
-        const res = await fetch(`${API_URL}/auth/telegram`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ initData: telegramInitData }),
-        });
-        const data = await res.json();
-        
-        if (data.token) {
-          localStorage.setItem('auth_token', data.token);
-          setUser({ name: data.user.name, id: data.user.id });
-          setPlatform('telegram');
-          setIsAuthenticated(true);
-          
-          // Expand mini app
-          if (window.Telegram?.WebApp) window.Telegram.WebApp.expand();
-          
-          await fetchAirdrops(data.token);
-          return;
-        }
-      }
-
-      // D. Jika tidak ada data Telegram, coba retry 1x setelah 2 detik
-      if (retryCount < 1) {
-        setTimeout(() => initAuth(retryCount + 1), 2000);
-        return;
-      }
-
-      // E. Jika sampai sini masih gagal, tampilkan layar login Browser
-      setLoading(false);
-      
+      // Fetch data
+      await fetchAirdrops(data.token);
+      return true;
     } catch (err) {
-      console.error('Auth error:', err);
-      setLoading(false);
-      setError("Gagal menghubungi server.");
+      setOtpError(err.message || 'Kode OTP salah atau expired!');
+      return false;
     }
   };
 
-  // 4. Handle OTP Manual Input
+  // ==========================================
+  // HANDLE: OTP Manual Submit
+  // ==========================================
   const handleOTPSubmit = async (e) => {
     e.preventDefault();
     setOtpError('');
     
-    const res = await fetch(`${API_URL}/auth/otp/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ otp: otpInput }),
-    });
-    const data = await res.json();
-    
-    if (data.token) {
-      localStorage.setItem('auth_token', data.token);
-      setPlatform('browser');
-      setIsAuthenticated(true);
-      await fetchAirdrops(data.token);
-    } else {
-      setOtpError('Kode OTP salah atau expired!');
+    if (!otpInput.trim()) {
+      setOtpError('Masukkan kode OTP terlebih dahulu');
+      return;
     }
+
+    setOtpLoading(true);
+    await verifyOTP(otpInput);
+    setOtpLoading(false);
   };
 
-  // 5. Handle Buka di Browser
+  // ==========================================
+  // HANDLE: Open in Browser (dari Telegram)
+  // ==========================================
   const handleOpenInBrowser = async () => {
     try {
       const token = localStorage.getItem('auth_token');
-      if (!token) return alert('Token tidak ditemukan');
+      if (!token) {
+        alert('Token tidak ditemukan');
+        return;
+      }
 
       const res = await fetch(`${API_URL}/auth/otp/generate`, {
         method: 'POST',
@@ -181,27 +139,122 @@ function YuiDashboard() {
         },
       });
 
+      if (!res.ok) {
+        throw new Error('Gagal generate OTP');
+      }
+
       const data = await res.json();
       
       if (data.otp) {
         const dashboardUrl = window.location.origin;
         const browserLink = `${dashboardUrl}?otp=${data.otp}`;
-        window.Telegram.WebApp.openLink(browserLink);
+        
+        // Copy ke clipboard
+        navigator.clipboard.writeText(browserLink);
+        alert(`✅ Link disalin ke clipboard!\n\nAtau gunakan OTP: ${data.otp}`);
+        
+        // Atau buka langsung (jika di Telegram)
+        if (window.Telegram?.WebApp) {
+          window.Telegram.WebApp.openLink(browserLink);
+        }
       }
     } catch (err) {
-      console.error('Gagal generate OTP:', err);
-      alert('Gagal buka di browser');
+      console.error('Generate OTP error:', err);
+      alert('❌ Gagal generate OTP');
     }
   };
 
+  // ==========================================
+  // AUTH INITIALIZATION
+  // ==========================================
+  const initAuth = async (retryCount = 0) => {
+    try {
+      // 1️⃣ Cek OTP dari URL query parameter (browser)
+      const urlParams = new URLSearchParams(window.location.search);
+      const otp = urlParams.get('otp');
+      
+      if (otp) {
+        console.log('[Auth] OTP ditemukan di URL, verifying...');
+        const success = await verifyOTP(otp);
+        if (success) {
+          // Clean up URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+          return;
+        }
+      }
+
+      // 2️⃣ Cek token tersimpan di localStorage (browser yang sudah login)
+      const savedToken = localStorage.getItem('auth_token');
+      if (savedToken) {
+        console.log('[Auth] Token ditemukan di localStorage, validating...');
+        const valid = await fetchProfile(savedToken);
+        if (valid) {
+          setPlatform('browser');
+          setIsAuthenticated(true);
+          await fetchAirdrops(savedToken);
+          return;
+        }
+      }
+
+      // 3️⃣ Cek apakah dibuka dari Telegram WebApp
+      const telegramInitData = window.__TELEGRAM_INIT_DATA__;
+      
+      if (telegramInitData) {
+        console.log('[Auth] Telegram WebApp detected, authenticating...');
+        const res = await fetch(`${API_URL}/auth/telegram`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initData: telegramInitData }),
+        });
+
+        if (!res.ok) {
+          throw new Error('Telegram auth failed');
+        }
+
+        const data = await res.json();
+        
+        if (data.token) {
+          localStorage.setItem('auth_token', data.token);
+          setUser({ name: data.user.name, id: data.user.id });
+          setPlatform('telegram');
+          setIsAuthenticated(true);
+          
+          // Expand mini app
+          if (window.Telegram?.WebApp) {
+            window.Telegram.WebApp.expand();
+          }
+          
+          await fetchAirdrops(data.token);
+          return;
+        }
+      }
+
+      // 4️⃣ Retry 1x after 2 seconds (untuk Telegram yang lambat load)
+      if (retryCount < 1) {
+        console.log('[Auth] Retrying Telegram detection...');
+        setTimeout(() => initAuth(retryCount + 1), 2000);
+        return;
+      }
+
+      // 5️⃣ Jika semua gagal, tampilkan login screen
+      console.log('[Auth] No auth method worked, showing login');
+      setLoading(false);
+      
+    } catch (err) {
+      console.error('[Auth] Error:', err);
+      setLoading(false);
+      setError("❌ Gagal menghubungi server.");
+    }
+  };
+
+  // Effect: Initialize auth on mount
   useEffect(() => {
     initAuth();
   }, []);
 
   // ==========================================
-  // RENDER UI
+  // RENDER: Loading
   // ==========================================
-
   if (loading) {
     return (
       <div className="loading">
@@ -211,52 +264,90 @@ function YuiDashboard() {
     );
   }
 
+  // ==========================================
+  // RENDER: Not Authenticated (Login Screen)
+  // ==========================================
   if (!isAuthenticated) {
     return (
-      <div className="loading" style={{ maxWidth: '400px', margin: '10vh auto', padding: '2rem' }}>
-        <div style={{ fontSize: '3rem', marginBottom: '1rem', textAlign: 'center' }}>🔒</div>
-        <div style={{ fontSize: '1.2rem', marginBottom: '1rem', textAlign: 'center' }}>Akses Ditolak</div>
-        <div style={{ textAlign: 'center', color: '#666', lineHeight: '1.6', marginBottom: '2rem' }}>
-          Dashboard hanya bisa diakses via Telegram, atau masukkan kode OTP yang kamu dapat dari Mini App Telegram.
+      <div className="login-container">
+        <div style={{ maxWidth: '400px', margin: '10vh auto', padding: '2rem' }}>
+          <div style={{ fontSize: '3rem', marginBottom: '1rem', textAlign: 'center' }}>🔒</div>
+          <div style={{ fontSize: '1.2rem', marginBottom: '1rem', textAlign: 'center', fontWeight: '600' }}>
+            Masuk ke Yui Dashboard
+          </div>
+          <div style={{ textAlign: 'center', color: '#666', lineHeight: '1.6', marginBottom: '2rem', fontSize: '0.95rem' }}>
+            Dashboard hanya bisa diakses via Telegram Mini App, atau masukkan kode OTP dari bot.
+          </div>
+          
+          <form onSubmit={handleOTPSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div>
+              <label style={{ fontSize: '0.85rem', fontWeight: '500', color: '#666', display: 'block', marginBottom: '0.5rem' }}>
+                Kode OTP (8 karakter)
+              </label>
+              <input 
+                type="text" 
+                value={otpInput}
+                onChange={(e) => setOtpInput(e.target.value.toUpperCase())}
+                placeholder="ABCD1234"
+                maxLength={8}
+                disabled={otpLoading}
+                style={{
+                  padding: '0.8rem',
+                  borderRadius: '8px',
+                  border: otpError ? '2px solid #ff6b6b' : '1px solid #ddd',
+                  textAlign: 'center',
+                  fontSize: '1.2rem',
+                  letterSpacing: '3px',
+                  fontWeight: 'bold',
+                  fontFamily: 'monospace',
+                  width: '100%',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+            
+            <button 
+              type="submit"
+              disabled={otpLoading}
+              style={{
+                padding: '0.8rem',
+                borderRadius: '8px',
+                border: 'none',
+                background: otpLoading ? '#ccc' : '#764ba2',
+                color: 'white',
+                fontWeight: 'bold',
+                cursor: otpLoading ? 'not-allowed' : 'pointer',
+                opacity: otpLoading ? 0.6 : 1
+              }}
+            >
+              {otpLoading ? '⏳ Verifying...' : '✨ Verifikasi'}
+            </button>
+
+            {otpError && (
+              <div style={{ 
+                color: '#ff6b6b', 
+                textAlign: 'center', 
+                fontSize: '0.9rem',
+                padding: '0.5rem',
+                background: '#ffe0e0',
+                borderRadius: '6px'
+              }}>
+                {otpError}
+              </div>
+            )}
+          </form>
+
+          <div style={{ marginTop: '2rem', paddingTop: '2rem', borderTop: '1px solid #eee', textAlign: 'center', fontSize: '0.85rem', color: '#999' }}>
+            💡 Belum punya OTP? Buka Mini App Telegram Yui dan klik "Buka di Browser"
+          </div>
         </div>
-        
-        <form onSubmit={handleOTPSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <input 
-            type="text" 
-            value={otpInput}
-            onChange={(e) => setOtpInput(e.target.value.toUpperCase())}
-            placeholder="MASUKKAN KODE OTP"
-            maxLength={8}
-            style={{
-              padding: '0.8rem',
-              borderRadius: '8px',
-              border: '1px solid #ddd',
-              textAlign: 'center',
-              fontSize: '1.2rem',
-              letterSpacing: '3px',
-              fontWeight: 'bold'
-            }}
-          />
-          <button 
-            type="submit"
-            style={{
-              padding: '0.8rem',
-              borderRadius: '8px',
-              border: 'none',
-              background: '#764ba2',
-              color: 'white',
-              fontWeight: 'bold',
-              cursor: 'pointer'
-            }}
-          >
-            Verifikasi
-          </button>
-          {otpError && <div style={{ color: 'red', textAlign: 'center', fontSize: '0.9rem' }}>{otpError}</div>}
-        </form>
       </div>
     );
   }
 
+  // ==========================================
+  // RENDER: Dashboard (Authenticated)
+  // ==========================================
   const stats = {
     total: airdrops.length,
     pending: airdrops.filter(a => a.status === 'pending').length,
@@ -338,7 +429,7 @@ function YuiDashboard() {
             color: '#764ba2',
             marginBottom: '0.7rem',
           }}>
-            {airdrops.length}
+            {stats.total}
           </div>
           <div style={{
             fontSize: '0.75rem',
@@ -363,7 +454,7 @@ function YuiDashboard() {
             {user?.name}
           </div>
           
-          {/* TOMBOL BUKA DI BROWSER - HANYA MUNCUL DI TELEGRAM */}
+          {/* Button: Buka di Browser (hanya di Telegram) */}
           {platform === 'telegram' && (
             <button 
               onClick={handleOpenInBrowser}
@@ -381,80 +472,177 @@ function YuiDashboard() {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '0.3rem'
+                gap: '0.3rem',
+                transition: 'all 0.2s ease'
               }}
+              onMouseOver={(e) => e.target.style.background = '#5a3680'}
+              onMouseOut={(e) => e.target.style.background = '#764ba2'}
             >
               🌐 Buka di Browser
             </button>
           )}
+
+          {/* Badge: Platform Info */}
+          <div style={{
+            marginTop: '0.8rem',
+            fontSize: '0.7rem',
+            padding: '0.3rem 0.5rem',
+            background: platform === 'telegram' ? '#e3f2fd' : '#f3e5f5',
+            color: platform === 'telegram' ? '#1976d2' : '#7b1fa2',
+            borderRadius: '4px',
+            textAlign: 'center',
+            fontWeight: '500'
+          }}>
+            {platform === 'telegram' ? '📱 Telegram' : '💻 Browser'}
+          </div>
         </div>
       </aside>
 
       {/* MAIN CONTENT */}
-      <div className="container">
-        <div className="header">
-          <h1>✨ Yui Dashboard</h1>
-          <p>Halo {user?.name}! Kelola airdrop-mu di sini 🌸</p>
+      <div style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
+        <div style={{ marginBottom: '2rem' }}>
+          <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem', color: '#333' }}>✨ Yui Dashboard</h1>
+          <p style={{ color: '#666' }}>Halo {user?.name}! Kelola airdrop-mu di sini 🌸</p>
         </div>
 
         {error && (
-          <div className="error" style={{ marginBottom: '2rem' }}>
+          <div style={{ 
+            marginBottom: '2rem', 
+            padding: '1rem', 
+            background: '#ffe0e0', 
+            color: '#c41c3b',
+            borderRadius: '8px',
+            borderLeft: '4px solid #c41c3b'
+          }}>
             {error}
           </div>
         )}
 
-        <div className="card">
-          <h2>📊 Summary</h2>
-          <div className="stats">
-            <div className="stat-box">
-              <h3>Total Airdrop</h3>
-              <div className="number">{stats.total}</div>
+        {/* STATS CARD */}
+        <div style={{
+          background: 'white',
+          padding: '1.5rem',
+          borderRadius: '12px',
+          marginBottom: '2rem',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+        }}>
+          <h2 style={{ marginTop: 0, marginBottom: '1.5rem' }}>📊 Summary</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+            <div style={{
+              padding: '1rem',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '0.85rem', marginBottom: '0.5rem', opacity: 0.9 }}>Total Airdrop</div>
+              <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{stats.total}</div>
             </div>
-            <div className="stat-box">
-              <h3>Pending</h3>
-              <div className="number">{stats.pending}</div>
+            <div style={{
+              padding: '1rem',
+              background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+              color: 'white',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '0.85rem', marginBottom: '0.5rem', opacity: 0.9 }}>Pending</div>
+              <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{stats.pending}</div>
             </div>
-            <div className="stat-box">
-              <h3>Selesai</h3>
-              <div className="number">{stats.done}</div>
+            <div style={{
+              padding: '1rem',
+              background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+              color: 'white',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '0.85rem', marginBottom: '0.5rem', opacity: 0.9 }}>Selesai</div>
+              <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{stats.done}</div>
             </div>
-            <div className="stat-box">
-              <h3>Claimed</h3>
-              <div className="number">{stats.claimed}</div>
+            <div style={{
+              padding: '1rem',
+              background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+              color: '#333',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '0.85rem', marginBottom: '0.5rem', opacity: 0.8 }}>Claimed</div>
+              <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{stats.claimed}</div>
             </div>
           </div>
         </div>
 
-        <div className="card">
-          <h2>📋 Airdrop List</h2>
+        {/* AIRDROP LIST CARD */}
+        <div style={{
+          background: 'white',
+          padding: '1.5rem',
+          borderRadius: '12px',
+          marginBottom: '2rem',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+        }}>
+          <h2 style={{ marginTop: 0, marginBottom: '1rem' }}>📋 Airdrop List</h2>
           {airdrops.length === 0 ? (
-            <p style={{color: '#999', fontStyle: 'italic'}}>
+            <p style={{color: '#999', fontStyle: 'italic', textAlign: 'center', padding: '2rem'}}>
               📭 Belum ada airdrop. Tambah via /tambah di bot! 🌸
             </p>
           ) : (
-            <div className="airdrop-list">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
               {airdrops.map((a, idx) => (
-                <div key={idx} className="airdrop-item">
+                <div key={idx} style={{
+                  padding: '1rem',
+                  background: '#fafafa',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  borderLeft: '4px solid #764ba2'
+                }}>
                   <div>
-                    <div className="airdrop-name">{a.nama}</div>
-                    <div style={{fontSize: '0.85rem', color: '#999', marginTop: '0.3rem'}}>
+                    <div style={{ fontWeight: '600', marginBottom: '0.3rem' }}>{a.nama}</div>
+                    <div style={{fontSize: '0.85rem', color: '#999'}}>
                       📅 {a.deadline ? new Date(a.deadline).toLocaleDateString('id-ID') : '—'}
                     </div>
                   </div>
-                  <div className={`airdrop-status status-${a.status}`}>
+                  <span style={{
+                    padding: '0.4rem 0.8rem',
+                    background: getStatusColor(a.status),
+                    color: 'white',
+                    borderRadius: '6px',
+                    fontSize: '0.8rem',
+                    fontWeight: '600',
+                    textTransform: 'capitalize'
+                  }}>
                     {a.status}
-                  </div>
+                  </span>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        <div className="card" style={{textAlign: 'center', color: '#666'}}>
-          <p>💼 Yui always support you! Jangan nyerah ya~</p>
+        {/* FOOTER CARD */}
+        <div style={{
+          background: 'white',
+          padding: '1.5rem',
+          borderRadius: '12px',
+          textAlign: 'center',
+          color: '#666',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+        }}>
+          <p style={{ marginBottom: '1rem' }}>💼 Yui always support you! Jangan nyerah ya~</p>
           <button 
-            style={{marginTop: '1rem'}} 
             onClick={() => fetchAirdrops(localStorage.getItem('auth_token'))}
+            style={{
+              padding: '0.8rem 1.5rem',
+              background: '#764ba2',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseOver={(e) => e.target.style.background = '#5a3680'}
+            onMouseOut={(e) => e.target.style.background = '#764ba2'}
           >
             🔄 Refresh Data
           </button>
@@ -462,6 +650,19 @@ function YuiDashboard() {
       </div>
     </div>
   );
+}
+
+// ==========================================
+// HELPER: Get status badge color
+// ==========================================
+function getStatusColor(status) {
+  const colors = {
+    'pending': '#ff9800',
+    'done': '#4caf50',
+    'claim': '#2196f3',
+    'completed': '#4caf50'
+  };
+  return colors[status] || '#999';
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<YuiDashboard />);
