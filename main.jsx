@@ -84,15 +84,7 @@ function YuiDashboard() {
           window.history.replaceState({}, document.title, window.location.pathname);
           const valid = await fetchProfile(data.token);
           if (valid) {
-            setIsAuthenticated(true);
-            await fetchAirdrops(data.token);
-            return;
-                if (data.token) {
-          localStorage.setItem('auth_token', data.token);
-          window.history.replaceState({}, document.title, window.location.pathname);
-          const valid = await fetchProfile(data.token);
-          if (valid) {
-            setPlatform('browser'); // <--- TAMBAHKAN INI
+            setPlatform('browser');
             setIsAuthenticated(true);
             await fetchAirdrops(data.token);
             return;
@@ -105,17 +97,10 @@ function YuiDashboard() {
       if (savedToken) {
         const valid = await fetchProfile(savedToken);
         if (valid) {
+          setPlatform('browser');
           setIsAuthenticated(true);
           await fetchAirdrops(savedToken);
           return;
-                  if (data.token) {
-          localStorage.setItem('auth_token', data.token);
-          setUser({ name: data.user.name, id: data.user.id });
-          setIsAuthenticated(true);
-          setPlatform('telegram'); // <--- TAMBAHKAN INI
-          
-          // Expand mini app
-          if (window.Telegram?.WebApp) window.Telegram.WebApp.expand();
         }
       }
 
@@ -133,6 +118,7 @@ function YuiDashboard() {
         if (data.token) {
           localStorage.setItem('auth_token', data.token);
           setUser({ name: data.user.name, id: data.user.id });
+          setPlatform('telegram');
           setIsAuthenticated(true);
           
           // Expand mini app
@@ -173,6 +159,7 @@ function YuiDashboard() {
     
     if (data.token) {
       localStorage.setItem('auth_token', data.token);
+      setPlatform('browser');
       setIsAuthenticated(true);
       await fetchAirdrops(data.token);
     } else {
@@ -377,7 +364,7 @@ function YuiDashboard() {
           </div>
           
           {/* TOMBOL BUKA DI BROWSER - HANYA MUNCUL DI TELEGRAM */}
-                    {platform === 'telegram' && (
+          {platform === 'telegram' && (
             <button 
               onClick={handleOpenInBrowser}
               style={{
