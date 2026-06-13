@@ -65,9 +65,10 @@ function YuiDashboard() {
   };
 
   // 3. Main Auth Initialization
-  const initAuth = async () => {
+    // ===== AUTH SYSTEM (UPDATED) =====
+  const initAuth = async (retryCount = 0) => {
     try {
-      // A. Cek apakah dibuka lewat OTP Link di Browser (dari tombol Telegram)
+      // A. Cek OTP dari URL (Browser)
       const urlParams = new URLSearchParams(window.location.search);
       const otp = urlParams.get('otp');
       
@@ -81,7 +82,7 @@ function YuiDashboard() {
         
         if (data.token) {
           localStorage.setItem('auth_token', data.token);
-          window.history.replaceState({}, document.title, window.location.pathname); // hapus ?otp= dari URL
+          window.history.replaceState({}, document.title, window.location.pathname);
           const valid = await fetchProfile(data.token);
           if (valid) {
             setIsAuthenticated(true);
@@ -90,6 +91,62 @@ function YuiDashboard() {
           }
         }
       }
+
+      // B. Cek Token tersimpan (Browser yang sudah login)
+      const savedToken = localStorage.getItem('auth_token');
+      if (savedToken) {
+        const valid = await fetchProfile(savedToken);
+        if (valid) {
+          setIsAuthenticated(true);
+          await fetchAirdrops(savedToken);
+          return;
+        }
+      }
+
+      // C. Cek apakah dibuka di Telegram (Pakai variabel global dari index.html)
+      const telegramInitData = window.__TELEGRAM_INIT_DATA__;
+      
+      if (telegramInitData) {
+        const res = await fetch(`${API_URL}/auth/telegram`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initData: telegramInitData }),
+        });
+        const data = await res.json();
+        
+        if (data.token) {
+          localStorage.setItem('auth_token', data.token);
+          setUser({ name: data.user.name, id: data.user.id });
+          setIsAuthenticated(true);
+          
+          // Expand mini app
+          if (window.Telegram?.WebApp) window.Telegram.WebApp.expand();
+          
+          await fetchAirdrops(data.token);
+          return;
+        }
+      }
+
+      // D. Jika tidak ada data Telegram, coba retry 1x setelah 2 detik (jaga-jika load telat)
+      if (retryCount < 1) {
+        console.log("Telegram data not found, retrying in 2 seconds...");
+        setTimeout(() => initAuth(retryCount + 1), 2000);
+        return;
+      }
+
+      // E. Jika sampai sini masih gagal, tampilkan layar login Browser
+      setLoading(false);
+      
+    } catch (err) {
+      console.error('Auth error:', err);
+      setLoading(false);
+      setError("Gagal menghubungi server.");
+    }
+  };
+
+  useEffect(() => {
+    initAuth();
+  }, []);
 
       // B. Cek apakah sudah pernah login (ada token di localStorage)
       const savedToken = localStorage.getItem('auth_token');
