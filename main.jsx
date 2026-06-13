@@ -12,7 +12,7 @@ function YuiDashboard() {
   // State untuk OTP manual di browser
   const [otpInput, setOtpInput] = useState('');
   const [otpError, setOtpError] = useState('');
-
+  const [platform, setPlatform] = useState('browser');
   const API_URL = import.meta.env.VITE_API_URL;
 
   // ==========================================
@@ -87,6 +87,15 @@ function YuiDashboard() {
             setIsAuthenticated(true);
             await fetchAirdrops(data.token);
             return;
+                if (data.token) {
+          localStorage.setItem('auth_token', data.token);
+          window.history.replaceState({}, document.title, window.location.pathname);
+          const valid = await fetchProfile(data.token);
+          if (valid) {
+            setPlatform('browser'); // <--- TAMBAHKAN INI
+            setIsAuthenticated(true);
+            await fetchAirdrops(data.token);
+            return;
           }
         }
       }
@@ -99,6 +108,14 @@ function YuiDashboard() {
           setIsAuthenticated(true);
           await fetchAirdrops(savedToken);
           return;
+                  if (data.token) {
+          localStorage.setItem('auth_token', data.token);
+          setUser({ name: data.user.name, id: data.user.id });
+          setIsAuthenticated(true);
+          setPlatform('telegram'); // <--- TAMBAHKAN INI
+          
+          // Expand mini app
+          if (window.Telegram?.WebApp) window.Telegram.WebApp.expand();
         }
       }
 
@@ -360,7 +377,7 @@ function YuiDashboard() {
           </div>
           
           {/* TOMBOL BUKA DI BROWSER - HANYA MUNCUL DI TELEGRAM */}
-          {typeof window !== 'undefined' && window.Telegram?.WebApp?.initData && (
+                    {platform === 'telegram' && (
             <button 
               onClick={handleOpenInBrowser}
               style={{
