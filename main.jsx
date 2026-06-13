@@ -19,7 +19,7 @@ function YuiDashboard() {
   // AUTH SYSTEM: SINKRONISASI TELEGRAM & BROWSER
   // ==========================================
 
-  // 1. Verifikasi JWT ke API dan ambil data user
+  // 1. Verifikasi JWT ke API dan ambil data user (PASTI ASYNC)
   const fetchProfile = async (token) => {
     try {
       const res = await fetch(`${API_URL}/api/user`, {
@@ -35,7 +35,7 @@ function YuiDashboard() {
     }
   };
 
-  // 2. Fetch Data Airdrop (menggunakan JWT)
+  // 2. Fetch Data Airdrop (PASTI ASYNC)
   const fetchAirdrops = async (token) => {
     try {
       setLoading(true);
@@ -64,8 +64,7 @@ function YuiDashboard() {
     }
   };
 
-  // 3. Main Auth Initialization
-    // ===== AUTH SYSTEM (UPDATED) =====
+  // 3. Main Auth Initialization (PASTI ASYNC)
   const initAuth = async (retryCount = 0) => {
     try {
       // A. Cek OTP dari URL (Browser)
@@ -127,9 +126,8 @@ function YuiDashboard() {
         }
       }
 
-      // D. Jika tidak ada data Telegram, coba retry 1x setelah 2 detik (jaga-jika load telat)
+      // D. Jika tidak ada data Telegram, coba retry 1x setelah 2 detik
       if (retryCount < 1) {
-        console.log("Telegram data not found, retrying in 2 seconds...");
         setTimeout(() => initAuth(retryCount + 1), 2000);
         return;
       }
@@ -144,57 +142,7 @@ function YuiDashboard() {
     }
   };
 
-  useEffect(() => {
-    initAuth();
-  }, []);
-
-      // B. Cek apakah sudah pernah login (ada token di localStorage)
-      const savedToken = localStorage.getItem('auth_token');
-      if (savedToken) {
-        const valid = await fetchProfile(savedToken);
-        if (valid) {
-          setIsAuthenticated(true);
-          await fetchAirdrops(savedToken);
-          return;
-        }
-      }
-
-      // C. Cek apakah dibuka di dalam Telegram Mini App
-      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-        const webApp = window.Telegram.WebApp;
-        webApp.expand();
-        
-        const initData = webApp.initData;
-        
-        if (initData) {
-          const res = await fetch(`${API_URL}/auth/telegram`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ initData }),
-          });
-          const data = await res.json();
-          
-          if (data.token) {
-            localStorage.setItem('auth_token', data.token);
-            setUser({ name: data.user.name, id: data.user.id });
-            setIsAuthenticated(true);
-            await fetchAirdrops(data.token);
-            return;
-          }
-        }
-      }
-
-      // D. Kalau semua gagal, berarti di browser biasa tanpa OTP. Minta login.
-      setLoading(false);
-      
-    } catch (err) {
-      console.error('Auth error:', err);
-      setLoading(false);
-      setError("Gagal menghubungi server.");
-    }
-  };
-
-  // 4. Handle OTP Manual Input (untuk layar login browser)
+  // 4. Handle OTP Manual Input
   const handleOTPSubmit = async (e) => {
     e.preventDefault();
     setOtpError('');
@@ -214,13 +162,13 @@ function YuiDashboard() {
       setOtpError('Kode OTP salah atau expired!');
     }
   };
-  // ===== HANDLE OPEN IN BROWSER =====
+
+  // 5. Handle Buka di Browser
   const handleOpenInBrowser = async () => {
     try {
       const token = localStorage.getItem('auth_token');
       if (!token) return alert('Token tidak ditemukan');
 
-      // 1. Minta OTP ke Worker API
       const res = await fetch(`${API_URL}/auth/otp/generate`, {
         method: 'POST',
         headers: { 
@@ -232,11 +180,8 @@ function YuiDashboard() {
       const data = await res.json();
       
       if (data.otp) {
-        // 2. Buka halaman dashboard di browser external dengan OTP di URL
-        const dashboardUrl = window.location.origin; // Ambil URL dasar pages.dev kamu
+        const dashboardUrl = window.location.origin;
         const browserLink = `${dashboardUrl}?otp=${data.otp}`;
-        
-        // Telegram WebApp API untuk buka link di browser luar (Chrome/Safari)
         window.Telegram.WebApp.openLink(browserLink);
       }
     } catch (err) {
@@ -244,19 +189,9 @@ function YuiDashboard() {
       alert('Gagal buka di browser');
     }
   };
-    useEffect(() => {
-    // Gunakan Telegram WebApp Ready Event agar pasti sudah load
-    if (window.Telegram?.WebApp) {
-      window.Telegram.WebApp.ready(); // Beritahu Telegram bahwa WebApp sudah siap
-      window.Telegram.WebApp.expand(); // Perbesar tampilan
-      
-      // Tunggu event ready baru jalankan auth
-      window.Telegram.WebApp.onEvent('viewportChanged', () => {});
-      initAuth();
-    } else {
-      // Fallback kalau ternyata dibuka di browser biasa
-      initAuth();
-    }
+
+  useEffect(() => {
+    initAuth();
   }, []);
 
   // ==========================================
@@ -272,7 +207,6 @@ function YuiDashboard() {
     );
   }
 
-  // LAYAR LOGIN BROWSER (Tampil kalau bukan dari Telegram & belum ada token)
   if (!isAuthenticated) {
     return (
       <div className="loading" style={{ maxWidth: '400px', margin: '10vh auto', padding: '2rem' }}>
@@ -413,7 +347,7 @@ function YuiDashboard() {
           </div>
         </div>
 
-                <div style={{
+        <div style={{
           fontSize: '0.8rem',
           color: '#999',
           marginTop: 'auto',
