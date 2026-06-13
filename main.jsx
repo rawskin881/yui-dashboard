@@ -157,7 +157,36 @@ function YuiDashboard() {
       setOtpError('Kode OTP salah atau expired!');
     }
   };
+  // ===== HANDLE OPEN IN BROWSER =====
+  const handleOpenInBrowser = async () => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) return alert('Token tidak ditemukan');
 
+      // 1. Minta OTP ke Worker API
+      const res = await fetch(`${API_URL}/auth/otp/generate`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+      });
+
+      const data = await res.json();
+      
+      if (data.otp) {
+        // 2. Buka halaman dashboard di browser external dengan OTP di URL
+        const dashboardUrl = window.location.origin; // Ambil URL dasar pages.dev kamu
+        const browserLink = `${dashboardUrl}?otp=${data.otp}`;
+        
+        // Telegram WebApp API untuk buka link di browser luar (Chrome/Safari)
+        window.Telegram.WebApp.openLink(browserLink);
+      }
+    } catch (err) {
+      console.error('Gagal generate OTP:', err);
+      alert('Gagal buka di browser');
+    }
+  };
   useEffect(() => {
     // Delay sedikit agar Telegram WebApp script sempat load
     const timer = setTimeout(() => {
@@ -320,7 +349,7 @@ function YuiDashboard() {
           </div>
         </div>
 
-        <div style={{
+                <div style={{
           fontSize: '0.8rem',
           color: '#999',
           marginTop: 'auto',
@@ -331,6 +360,31 @@ function YuiDashboard() {
           <div style={{ fontWeight: '600', marginBottom: '0.5rem' }}>
             {user?.name}
           </div>
+          
+          {/* TOMBOL BUKA DI BROWSER - HANYA MUNCUL DI TELEGRAM */}
+          {typeof window !== 'undefined' && window.Telegram?.WebApp?.initData && (
+            <button 
+              onClick={handleOpenInBrowser}
+              style={{
+                marginTop: '1rem',
+                width: '100%',
+                padding: '0.6rem',
+                borderRadius: '8px',
+                border: 'none',
+                background: '#764ba2',
+                color: 'white',
+                fontWeight: 'bold',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.3rem'
+              }}
+            >
+              🌐 Buka di Browser
+            </button>
+          )}
         </div>
       </aside>
 
