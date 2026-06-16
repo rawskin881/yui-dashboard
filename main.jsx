@@ -12,13 +12,13 @@ function YuiDashboard() {
   const [debugInfo, setDebugInfo] = useState(null);
   
   // OTP state
-  const [otpInput, setOtpInput] = useState('');
-  const [otpError, setOtpError] = useState('');
-  const [otpLoading, setOtpLoading] = useState(false);
+  const [telegramIdInput, setTelegramIdInput] = useState('');
+const [otpInput, setOtpInput] = useState('');
+const [isOtpSent, setIsOtpSent] = useState(false);
 
   const API_URL = import.meta.env.VITE_API_URL;
   const DEBUG = true; // Set ke false untuk production
-
+  
   // Logging utility
   const log = (msg, data = null) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -335,89 +335,41 @@ function YuiDashboard() {
   // RENDER: Not Authenticated
   // ==========================================
   if (!isAuthenticated) {
-    return (
-      <div style={{
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #f5e6ff 0%, #fff0f5 100%)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center'
-      }}>
-        <div style={{ maxWidth: '400px', padding: '2rem', background: 'white', borderRadius: '16px', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}>
-          <div style={{ fontSize: '3rem', marginBottom: '1rem', textAlign: 'center' }}>🔒</div>
-          <div style={{ fontSize: '1.2rem', marginBottom: '1rem', textAlign: 'center', fontWeight: '600', color: '#333' }}>
-            Masuk ke Yui Dashboard
-          </div>
-          <div style={{ textAlign: 'center', color: '#666', lineHeight: '1.6', marginBottom: '2rem', fontSize: '0.95rem' }}>
-            Dashboard hanya bisa diakses via Telegram Mini App, atau masukkan kode OTP dari bot.
-          </div>
-          
-          <form onSubmit={handleOTPSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div>
-              <label style={{ fontSize: '0.85rem', fontWeight: '500', color: '#666', display: 'block', marginBottom: '0.5rem' }}>
-                Kode OTP (8 karakter)
-              </label>
-              <input 
-                type="text" 
-                value={otpInput}
-                onChange={(e) => setOtpInput(e.target.value.toUpperCase())}
-                placeholder="ABCD1234"
-                maxLength={8}
-                disabled={otpLoading}
-                style={{
-                  padding: '0.8rem',
-                  borderRadius: '8px',
-                  border: otpError ? '2px solid #ff6b6b' : '1px solid #ddd',
-                  textAlign: 'center',
-                  fontSize: '1.2rem',
-                  letterSpacing: '3px',
-                  fontWeight: 'bold',
-                  fontFamily: 'monospace',
-                  width: '100%',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-            
-            <button 
-              type="submit"
-              disabled={otpLoading}
-              style={{
-                padding: '0.8rem',
-                borderRadius: '8px',
-                border: 'none',
-                background: otpLoading ? '#ccc' : '#764ba2',
-                color: 'white',
-                fontWeight: 'bold',
-                cursor: otpLoading ? 'not-allowed' : 'pointer',
-                opacity: otpLoading ? 0.6 : 1
-              }}
-            >
-              {otpLoading ? '⏳ Verifying...' : '✨ Verifikasi'}
-            </button>
+  return (
+    <div className="login-container" style={{ textAlign: 'center', padding: '2rem' }}>
+      <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🌸</div>
+      <h2>Login ke Dashboard Yui</h2>
+      <p style={{ color: '#666', marginBottom: '2rem' }}>Buka dari Telegram, atau gunakan ID Telegram-mu untuk request OTP.</p>
 
-            {otpError && (
-              <div style={{ 
-                color: '#ff6b6b', 
-                textAlign: 'center', 
-                fontSize: '0.9rem',
-                padding: '0.5rem',
-                background: '#ffe0e0',
-                borderRadius: '6px'
-              }}>
-                {otpError}
-              </div>
-            )}
-          </form>
-
-          <div style={{ marginTop: '2rem', paddingTop: '2rem', borderTop: '1px solid #eee', textAlign: 'center', fontSize: '0.85rem', color: '#999' }}>
-            💡 Belum punya OTP? Buka Mini App Telegram Yui dan klik "Buka di Browser"
-          </div>
+      {!isOtpSent ? (
+        <div>
+          <input 
+            type="text" 
+            placeholder="Masukkan Telegram ID kamu" 
+            value={telegramIdInput}
+            onChange={(e) => setTelegramIdInput(e.target.value)}
+            style={{ padding: '0.5rem', width: '200px', marginBottom: '1rem' }}
+          />
+          <br/>
+          <button onClick={handleRequestOtp}>Kirim Kode OTP</button>
         </div>
-      </div>
-    );
-  }
-
+      ) : (
+        <div>
+          <input 
+            type="text" 
+            placeholder="Masukkan 6 Digit OTP" 
+            value={otpInput}
+            onChange={(e) => setOtpInput(e.target.value)}
+            style={{ padding: '0.5rem', width: '200px', marginBottom: '1rem' }}
+          />
+          <br/>
+          <button onClick={handleVerifyOtp}>Verifikasi & Login</button>
+        </div>
+      )}
+      {error && <p style={{ color: 'red', marginTop: '1rem' }}>{error}</p>}
+    </div>
+  );
+}
   // ==========================================
   // RENDER: Dashboard
   // ==========================================
