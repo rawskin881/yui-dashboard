@@ -13,9 +13,10 @@ function YuiDashboard() {
   
   // OTP state
   const [telegramIdInput, setTelegramIdInput] = useState('');
-const [otpInput, setOtpInput] = useState('');
-const [isOtpSent, setIsOtpSent] = useState(false);
-
+  const [otpInput, setOtpInput] = useState('');
+  const [isOtpSent, setIsOtpSent] = useState(false);
+  const [isOtpLoading, setIsOtpLoading] = useState(false); // State untuk efek loading tombol
+  
   const API_URL = import.meta.env.VITE_API_URL;
   const DEBUG = true; // Set ke false untuk production
   
