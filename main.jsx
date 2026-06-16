@@ -40,15 +40,14 @@ function YuiDashboard() {
     return null;
   };
 
-  // ===== FETCH DATA (UPDATED) =====
+  // ===== FETCH DATA (PERBAIKAN) =====
   const fetchData = async (loggedInUserId = null) => {
     try {
       setLoading(true);
       const telegramUser = getTelegramUserData();
       
-      // Tentukan ID dan Nama berdasarkan WebApp atau Login OTP
-      const finalUserId = loggedInUserId || telegramUser?.id;
-      const finalUserName = user?.name || telegramUser?.first_name || "Kak";
+      // 1. Tentukan ID pengguna secara konsisten
+      const finalUserId = loggedInUserId || user?.id || telegramUser?.id;
       
       if (!finalUserId) {
         setError("⚠️ Buka dashboard dari tombol di Telegram atau login menggunakan OTP!");
@@ -56,9 +55,19 @@ function YuiDashboard() {
         return;
       }
 
+      // 2. Tentukan Nama secara cerdas: Prioritaskan state user yang sudah ada (dari OTP), 
+      // baru kemudian fallback ke data Telegram WebApp, dan terakhir "Kak".
+      let finalUserName = "Kak";
+      if (user?.name && user.name !== "Kak") {
+        finalUserName = user.name;
+      } else if (telegramUser?.first_name) {
+        finalUserName = telegramUser.first_name;
+      }
+
       setIsAuthenticated(true);
+      
+      // Update state user secara aman tanpa merusak data lama
       setUser(prev => ({
-        ...prev,
         id: finalUserId,
         name: finalUserName,
         username: telegramUser?.username || prev?.username || '',
@@ -81,8 +90,6 @@ function YuiDashboard() {
       }
 
       const data = await res.json();
-      console.log('[DEBUG] Data:', data);
-      
       setAirdrops(data);
 
       // Set mood berdasarkan jumlah pending
@@ -376,7 +383,9 @@ function YuiDashboard() {
                   <div>
                     <div className="airdrop-name" style={{ fontWeight: '600', color: '#333' }}>{a.nama || a.name}</div>
                     <div style={{ fontSize: '0.85rem', color: '#999', marginTop: '0.3rem' }}>
-                      📅 {a.deadline ? new Date(a.deadline).toLocaleDateString('id-ID') : '—'}
+                      📅 {a.deadline && !isNaN(new Date(a.deadline).getTime()) 
+                        ? new Date(a.deadline).toLocaleDateString('id-ID') 
+                        : '—'}
                     </div>
                   </div>
                   <div className={`airdrop-status status-${a.status}`} style={{ padding: '0.4rem 0.8rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 'bold', textTransform: 'uppercase' }}>
