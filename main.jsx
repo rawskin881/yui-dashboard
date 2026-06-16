@@ -140,7 +140,7 @@ function YuiDashboard() {
     }
   };
 
-  // ===== HANDLER VERIFY OTP =====
+  // ===== HANDLER VERIFY OTP (PERBAIKAN STUCK) =====
   const handleVerifyOtp = async () => {
     if (!otpInput.trim()) {
       setError("Kode OTP nggak boleh kosong! 🌸");
@@ -149,14 +149,11 @@ function YuiDashboard() {
 
     setIsOtpLoading(true);
     setError(null);
-  const userObj = {
-        id: data.user.id,
-        name: data.user.name, // Ini akan mengambil nama asli hasil pencarian KV di atas (bukan "Kak")
-        username: data.user.username || ''
-      };
-    
+
     try {
       const apiUrl = import.meta.env.VITE_API_URL;
+      console.log("[DEBUG] Mengirim verifikasi OTP ke:", `${apiUrl}/auth/verify-otp`);
+
       const res = await fetch(`${apiUrl}/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -166,28 +163,43 @@ function YuiDashboard() {
         }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Kode OTP salah atau kedaluwarsa.");
+      // Ambil teks mentah dulu untuk mengantisipasi jika backend error beneran (bukan JSON)
+      const resText = await res.text();
+      let data;
+      try {
+        data = JSON.parse(resText);
+      } catch (e) {
+        throw new Error(`Respons server rusak atau bukan JSON: ${resText.substring(0, 50)}`);
       }
 
+      if (!res.ok) {
+        throw new Error(data.error || "Kode OTP salah atau sudah kedaluwarsa.");
+      }
+
+      console.log("[DEBUG] Verifikasi OTP Sukses:", data);
       setError(null);
       
-      // Set data user dari response backend
-      setUser({
-        name: data.user.name,
+      // 1. Set data user dari response backend
+      const loggedInUser = {
         id: data.user.id,
-      });
+        name: data.user.name,
+        username: data.user.username || ''
+      };
+      setUser(loggedInUser);
 
+      // 2. Tandai sebagai terautentikasi
       setIsAuthenticated(true);
       
-      // Jalankan fetch data airdrop dengan ID yang sukses diverifikasi
-      fetchData(data.user.id);
+      // 3. Jalankan fetch data airdrop dengan ID yang sukses diverifikasi
+      await fetchData(data.user.id);
 
     } catch (err) {
-      setError(`❌ Error: ${err.message}`);
+      console.error('[DEBUG ERROR VERIFY]', err);
+      setError(`❌ Verifikasi Gagal: ${err.message}`);
+      // PENTING: Jika gagal, matikan status loading agar tombol bisa diklik lagi
+      setIsOtpLoading(false); 
     } finally {
+      // Pastikan loading dimatikan jika proses selesai seutuhnya
       setIsOtpLoading(false);
     }
   };
