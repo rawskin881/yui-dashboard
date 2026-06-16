@@ -149,7 +149,12 @@ function YuiDashboard() {
 
     setIsOtpLoading(true);
     setError(null);
-
+  const userObj = {
+        id: data.user.id,
+        name: data.user.name, // Ini akan mengambil nama asli hasil pencarian KV di atas (bukan "Kak")
+        username: data.user.username || ''
+      };
+    
     try {
       const apiUrl = import.meta.env.VITE_API_URL;
       const res = await fetch(`${apiUrl}/auth/verify-otp`, {
